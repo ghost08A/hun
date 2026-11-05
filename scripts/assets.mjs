@@ -1,30 +1,10 @@
 // Owner CLI (SPEC section 8). Talks to D1 through wrangler; add also calls Twelve Data once.
 // Usage: npm run assets -- <add|edit|disable|enable|remove|list|status> ... [--remote]
-import { spawnSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
 import {
   parseSymbol, parseThreshold, checkQuote, assetTypeFrom, addSql, removeSql, updateSql,
   targetPrice, dropPercent, sqlText,
 } from './core.mjs';
-
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const WRANGLER = path.join(root, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
-
-function loadEnv() {
-  const file = path.join(root, '.dev.vars');
-  const env = { ...process.env };
-  if (existsSync(file)) {
-    for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
-      const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/.exec(line);
-      // Tolerate spaces and surrounding quotes around the value.
-      const value = m?.[2].trim().replace(/^(['"])(.*)\1$/, '$2').trim();
-      if (m && !line.trim().startsWith('#') && value) env[m[1]] = value;
-    }
-  }
-  return env;
-}
+import { loadEnv, d1 } from './lib.mjs';
 
 function parseArgs(argv) {
   const flags = {};
@@ -38,14 +18,6 @@ function parseArgs(argv) {
     } else pos.push(a);
   }
   return { flags, pos };
-}
-
-function d1(sql, remote) {
-  const args = [WRANGLER, 'd1', 'execute', 'price-alert', remote ? '--remote' : '--local', '--json', '--command', sql];
-  const r = spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8' });
-  if (r.status !== 0) throw new Error(`wrangler failed:\n${r.stderr || r.stdout}`);
-  const parsed = JSON.parse(r.stdout);
-  return parsed[parsed.length - 1]?.results ?? [];
 }
 
 async function fetchQuote(symbol, env) {
