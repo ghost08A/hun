@@ -1,0 +1,4 @@
+# Copy to .dev.vars and fill in. .dev.vars is gitignored; never commit real values.
+TWELVE_DATA_API_KEY=
+LINE_CHANNEL_ACCESS_TOKEN=
+LINE_USER_ID=

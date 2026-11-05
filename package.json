@@ -1,0 +1,14 @@
+{
+  "name": "price-alert",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "migrate:local": "wrangler d1 migrations apply price-alert --local",
+    "migrate:remote": "wrangler d1 migrations apply price-alert --remote",
+    "assets": "node scripts/assets.mjs",
+    "test": "node --test scripts/core.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

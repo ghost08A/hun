@@ -1,0 +1,10 @@
+name = "price-alert"
+compatibility_date = "2026-11-01"
+
+# Worker entry and cron triggers are added in later phases.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "price-alert"
+# Fill in after `npx wrangler d1 create price-alert` (not a secret).
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
