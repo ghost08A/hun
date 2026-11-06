@@ -67,3 +67,17 @@ export function latestOf(series, runDate, staleDays = 4, beforeDate) {
   if (!rows.length) throw new ApiError('no completed daily close yet');
   return { ...rows[0], currency: series.currency, stale: isStale(rows[0].date, runDate, staleDays) };
 }
+
+// Daily credit usage (free to call). Returns { used, limit, left } or null if the answer is unusable.
+export async function fetchUsage({ apiKey, fetchFn = fetch }) {
+  try {
+    const res = await fetchFn(`https://api.twelvedata.com/api_usage?apikey=${encodeURIComponent(apiKey)}`);
+    const j = await res.json();
+    const used = Number(j.daily_usage);
+    const limit = Number(j.plan_daily_limit);
+    if (!Number.isFinite(used) || !Number.isFinite(limit)) return null;
+    return { used, limit, left: limit - used };
+  } catch {
+    return null;
+  }
+}

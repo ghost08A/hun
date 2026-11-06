@@ -2,3 +2,5 @@
 TWELVE_DATA_API_KEY=
 LINE_CHANNEL_ACCESS_TOKEN=
 LINE_USER_ID=
+# Only needed to test the LINE chat webhook locally (npm run dev:worker). Production reads it from Cloudflare secrets.
+LINE_CHANNEL_SECRET=

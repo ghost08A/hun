@@ -18,8 +18,8 @@ export function parseThreshold(input) {
   return n;
 }
 
-export { sqlText } from '../src/sql.mjs';
-import { sqlText } from '../src/sql.mjs';
+export { sqlText } from './sql.mjs';
+import { sqlText } from './sql.mjs';
 
 // quote: Twelve Data /quote response.
 export function checkQuote(quote, symbol) {
@@ -44,7 +44,9 @@ export function addSql({ symbol, name, assetType, exchange, currency, threshold 
   return `INSERT INTO Assets (Symbol, Name, AssetType, Exchange, Currency, AlertThresholdPercent) VALUES (${sqlText(symbol)}, ${sqlText(name)}, ${sqlText(assetType)}, ${sqlText(exchange)}, ${sqlText(currency)}, ${threshold})`;
 }
 
-export function removeSql(symbol) {
+export const removeSql = (symbol) => removeStatements(symbol).join('; ');
+
+export function removeStatements(symbol) {
   const sub = `(SELECT Id FROM Assets WHERE Symbol = ${sqlText(symbol)})`;
   // Explicit child deletes so removal never depends on foreign-key enforcement.
   return [
@@ -54,7 +56,7 @@ export function removeSql(symbol) {
     `DELETE FROM ReferenceAdjustments WHERE AssetId = ${sub}`,
     `DELETE FROM MonthlyReferencePrices WHERE AssetId = ${sub}`,
     `DELETE FROM Assets WHERE Symbol = ${sqlText(symbol)}`,
-  ].join('; ');
+  ];
 }
 
 export function updateSql(symbol, { threshold, name, isActive }) {

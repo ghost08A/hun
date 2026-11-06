@@ -10,7 +10,7 @@ import { sqlText } from './sql.mjs';
 export const shouldWarn = ({ isFinalRun, activeAssets, okToday }) => isFinalRun && activeAssets > 0 && okToday === 0;
 
 export async function dailyJob({
-  db, env, label, isFinalRun = false, fetchFn = fetch, log = console.log,
+  db, env, label, isFinalRun = false, fetchFn = fetch, log = console.log, runOptions = {},
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now(),
 }) {
   const line = env.LINE_CHANNEL_ACCESS_TOKEN && env.LINE_USER_ID
@@ -18,7 +18,7 @@ export async function dailyJob({
   const out = { run: null, notify: null, warned: false };
 
   try {
-    out.run = await runFetch({ db, label, apiKey: env.TWELVE_DATA_API_KEY, fetchFn, sleep, now, log });
+    out.run = await runFetch({ db, label, apiKey: env.TWELVE_DATA_API_KEY, fetchFn, sleep, now, log, ...runOptions });
   } catch (e) {
     log(`run failed: ${e.message}`);
   }

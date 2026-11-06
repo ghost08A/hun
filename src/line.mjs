@@ -59,16 +59,38 @@ export async function deliver({ send, maxAttempts = 3, retrySeconds = 60, sleep 
 
 const n2 = (x) => Number(x).toFixed(2);
 
-// row: asset + alert + reference fields (see scripts/notifier.mjs). Thai text, ISO dates.
+// row: asset + alert + reference fields (see src/notifier.mjs). Thai text, ISO dates.
+// Layout answers three questions in order: what was the starting price, what rate triggers, where is it now.
 export function alertText(row) {
   const target = row.ReferencePrice * (1 - row.Threshold / 100);
+  const cur = row.Currency;
   const lines = [
-    `🔔 ${row.Symbol} (${row.Name})`,
-    `ราคาปิด ${n2(row.TriggerPrice)} ${row.Currency}${row.PriceDate ? ` (${row.PriceDate})` : ''} ลดลง ${n2(row.DropPercent)}% จากราคาอ้างอิงเดือนนี้`,
-    `ราคาอ้างอิง ${n2(row.ReferencePrice)} (${row.ReferenceDate})${row.ReferenceBackfilled ? ' – ย้อนหาจากต้นเดือน' : ''}`,
-    `เกณฑ์ ${row.Threshold}% · ราคาเป้าหมาย ${n2(target)}`,
+    `🔔 ${row.Symbol} (${row.Name}) ราคาลดถึงเกณฑ์แล้ว`,
+    '',
+    `ราคาตั้งต้น (ปิด ${row.ReferenceDate}): ${n2(row.ReferencePrice)} ${cur}${row.ReferenceBackfilled ? ' *ย้อนหาจากต้นเดือน' : ''}`,
+    `เกณฑ์แจ้งเตือน: ลด ${row.Threshold}% → ที่ราคา ${n2(target)} ${cur}`,
+    '',
+    `ราคาปิดล่าสุด${row.PriceDate ? ` (${row.PriceDate})` : ''}: ${n2(row.TriggerPrice)} ${cur}`,
+    `ลดลงจากราคาตั้งต้น ${n2(row.DropPercent)}%`,
   ];
   return lines.join('\n');
 }
 
 export const testText = () => '✅ ทดสอบการเชื่อมต่อ LINE สำเร็จ (Price Alert)';
+
+export const REPLY_URL = 'https://api.line.me/v2/bot/message/reply';
+
+// Reply to a chat message. Replies do not count toward the monthly push quota. The reply token expires
+// after about a minute, so call this soon after the event arrives.
+export async function replyText({ token, replyToken, text, fetchFn = fetch }) {
+  const res = await fetchFn(REPLY_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ replyToken, messages: [{ type: 'text', text: text.slice(0, 4900) }] }),
+  });
+  if (res.status !== 200) {
+    let detail = '';
+    try { detail = (await res.json()).message ?? ''; } catch { /* no body */ }
+    throw new LineError(`LINE reply ${res.status}${detail ? `: ${detail}` : ''}`, { status: res.status, retryable: false });
+  }
+}

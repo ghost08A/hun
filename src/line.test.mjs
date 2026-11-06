@@ -55,7 +55,12 @@ test('deliver stops at a non-retryable error and succeeds on a later attempt', a
 
 test('alert text carries symbol, prices, reference, threshold and target', () => {
   const t = alertText({ Symbol: 'AAPL', Name: 'Apple Inc.', Currency: 'USD', TriggerPrice: 93, DropPercent: 7, Threshold: 5, ReferencePrice: 100, ReferenceDate: '2026-11-02', PriceDate: '2026-11-04', ReferenceBackfilled: 1 });
-  for (const part of ['AAPL', 'Apple Inc.', '93.00 USD', '2026-11-04', '7.00%', '100.00 (2026-11-02)', 'ย้อนหาจากต้นเดือน', 'เกณฑ์ 5%', '95.00']) {
+  for (const part of [
+    'AAPL', 'Apple Inc.',
+    'ราคาตั้งต้น (ปิด 2026-11-02): 100.00 USD', 'ย้อนหาจากต้นเดือน',
+    'เกณฑ์แจ้งเตือน: ลด 5% → ที่ราคา 95.00 USD',
+    'ราคาปิดล่าสุด (2026-11-04): 93.00 USD', 'ลดลงจากราคาตั้งต้น 7.00%',
+  ]) {
     assert.ok(t.includes(part), `missing ${part}`);
   }
 });

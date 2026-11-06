@@ -11,7 +11,7 @@ const nowIso = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 export async function runFetch({
   db, label = 'manual', apiKey, fetchFn = fetch, maxFetches = 45,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now(),
-  staleDays = 4, log = console.log,
+  staleDays = 4, log = console.log, spacingMs = SPACING_MS,
 }) {
   if (!apiKey) throw new Error('TWELVE_DATA_API_KEY is not set');
   const runDate = localDate(new Date(now()));
@@ -24,7 +24,7 @@ export async function runFetch({
        (SELECT AssetId FROM CheckResults WHERE RunDate = ${sqlText(runDate)} AND Outcome = 'ok') ORDER BY Symbol`);
   if (!todo.length) {
     log(`Nothing to do for ${runDate}: no active assets, or all already checked.`);
-    return { runDate, checked: 0, failed: 0, stoppedByRateLimit: false, stoppedByBudget: false };
+    return { runDate, checked: 0, failed: 0, stoppedByRateLimit: false, stoppedByBudget: false, results: [] };
   }
 
   // Stored references and alerts for the months a fetched series can cover (previous and current).
@@ -40,6 +40,7 @@ export async function runFetch({
 
   const runId = (await db.query(`INSERT INTO RunLog (TriggerLabel, StartedAt) VALUES (${sqlText(label)}, ${sqlText(nowIso())}) RETURNING Id`))[0].Id;
   let checked = 0, failed = 0, stopped = false, outOfBudget = false, fetches = 0;
+  const results = []; // one entry per asset handled this run (the chat reply is built from these)
   const errors = [];
   let lastCall = 0;
 
@@ -50,7 +51,7 @@ export async function runFetch({
       log(`${a.Symbol}: budget reached, stopping`);
       break;
     }
-    const wait = lastCall + SPACING_MS - now();
+    const wait = lastCall + spacingMs - now();
     if (lastCall && wait > 0) await sleep(wait);
     lastCall = now();
 
@@ -91,9 +92,15 @@ export async function runFetch({
         checked++;
         const notes = [res.isNew && (res.reference.isBackfilled ? 'reference back-filled' : 'new month'), res.adjustment && `REFERENCE RESTATED ${res.adjustment.oldPrice} -> ${res.adjustment.newPrice}`, res.triggered && 'AT/PAST THRESHOLD', alert.type === 'create' && 'ALERT QUEUED (Pending)', alert.type === 'update' && 'pending alert updated', alert.type === 'delete' && 'pending alert withdrawn'].filter(Boolean);
         log(`${a.Symbol}: ${res.detail}${notes.length ? ` [${notes.join(', ')}]` : ''}`);
+        results.push({
+          symbol: a.Symbol, outcome: 'ok', close: res.latest.close, priceDate: res.latest.date,
+          reference: res.reference.price, referenceDate: res.reference.date, threshold: a.Threshold,
+          target: res.targetPrice, drop: res.dropPercent, triggered: res.triggered,
+        });
       } else {
         failed++;
         log(`${a.Symbol}: ${res.outcome.toUpperCase()} ${res.detail}`);
+        results.push({ symbol: a.Symbol, outcome: res.outcome, detail: res.detail });
       }
     } catch (e) {
       if (e instanceof RateLimitError) {
@@ -106,9 +113,10 @@ export async function runFetch({
       failed++;
       errors.push(`${a.Symbol}: ${e.message}`);
       log(`${a.Symbol}: ERROR ${e.message}`);
+      results.push({ symbol: a.Symbol, outcome: 'error', detail: e.message });
     }
   }
 
   await db.run([`UPDATE RunLog SET FinishedAt = ${sqlText(nowIso())}, AssetsChecked = ${checked}, AssetsFailed = ${failed}, Errors = ${errors.length ? sqlText(errors.join('; ').slice(0, 500)) : 'NULL'} WHERE Id = ${runId}`]);
-  return { runDate, checked, failed, stoppedByRateLimit: stopped, stoppedByBudget: outOfBudget };
+  return { runDate, checked, failed, stoppedByRateLimit: stopped, stoppedByBudget: outOfBudget, results };
 }

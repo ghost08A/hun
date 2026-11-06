@@ -11,7 +11,7 @@
     "notify": "node scripts/notify.mjs send",
     "dev:worker": "wrangler dev --test-scheduled",
     "line-test": "node scripts/notify.mjs test",
-    "test": "node --test scripts/core.test.mjs src/market.test.mjs src/reference.test.mjs src/alerts.test.mjs src/line.test.mjs src/daily.test.mjs"
+    "test": "node --test src/core.test.mjs src/market.test.mjs src/reference.test.mjs src/alerts.test.mjs src/line.test.mjs src/daily.test.mjs src/chat.test.mjs src/webhook.test.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

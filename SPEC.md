@@ -21,8 +21,8 @@ A single-user, backend-only system. Once a day it checks the latest closing pric
 | Schedule | Cron at 19:00 and 20:00 Asia/Bangkok (UTC `0 12 * * *` and `0 13 * * *`). Timezone is configurable later. |
 | Stale rule | Latest close older than 4 calendar days (price date to run date) is not evaluated; the check records "stale data". Value is configurable. |
 | LINE | Messaging API push to the owner. Up to 3 send attempts 1 minute apart; then `Failed`, retried by the next daily run. One alert per asset per reference month. |
-| Platform | Cloudflare Worker + Cron Trigger + D1. No Pages, no Angular, no HTTP endpoints in MVP. |
-| Owner interface | Local scripts (section 8). Dashboard and its API are a later effort. |
+| Platform | Cloudflare Worker + Cron Trigger + D1. No Pages, no Angular. One HTTP route, `POST /line/webhook`, for LINE chat commands (section 8); everything else answers 404. |
+| Owner interface | Local scripts and LINE chat commands (section 8). Dashboard and its API are a later effort. |
 
 ## 3. Functional requirements
 
@@ -83,11 +83,20 @@ Dropped from v1.0: FR-04, FR-09 (implicit in the daily rule), FR-14, FR-19, FR-2
 
 ## 7. Secrets
 
-Twelve Data key, LINE channel access token and LINE user ID live only in a gitignored local env file (`.dev.vars`) for development and in Cloudflare secrets for production. The repository carries a `.dev.vars.example` with names and empty values; `.gitignore` lists the real file before it is created. Nothing secret reaches chat, source or any table.
+Twelve Data key, LINE channel access token, LINE channel secret and LINE user ID live only in a gitignored local env file (`.dev.vars`) for development and in Cloudflare secrets for production. The repository carries a `.dev.vars.example` with names and empty values; `.gitignore` lists the real file before it is created. Nothing secret reaches chat, source or any table.
 
-## 8. Owner scripts (local, `wrangler d1 execute --remote`)
+## 8. Owner interface
 
-`add`, `edit`, `disable`/`enable`, `remove --yes`, `status`, `line-test`, plus `wrangler d1 export` for backup.
+**Local scripts** (`wrangler d1 execute --remote`): `add`, `edit`, `disable`/`enable`, `remove --yes`, `status`, `line-test`, plus `wrangler d1 export` for backup.
+
+**LINE chat commands** (English only; answered in Thai as a free reply, not a push): `status`, `list`, `add SYMBOL N [etf]`, `edit SYMBOL N`, `disable SYMBOL`, `enable SYMBOL`, `remove SYMBOL` then `confirm SYMBOL` within 2 minutes, `fetch`, `help`. Backup, deploy and migrations stay on the computer.
+
+- **Security:** the webhook accepts a request only with a valid `X-Line-Signature` (HMAC-SHA256 of the raw body with the channel secret; otherwise 401, or 503 if the secret is not set) and acts only on text messages sent by the owner's LINE user id. Anyone else is ignored silently.
+- `fetch` checks at most 8 assets per command (the per-minute credit limit, and the work must finish inside the Worker's window after it has answered LINE). It is idempotent, so repeating it continues with the rest. It also sends any queued alerts.
+- `add` and `fetch` end by reporting today's Twelve Data credits (`/api_usage`: used, limit, left).
+- A pending removal is kept in SystemSettings (`pendingRemove` = symbol and expiry) and is single-use.
+- **Reply layout (LINE shows plain text only):** one block per asset, one fact per line, a blank line between blocks, and a leading marker: 🟢 above the starting price, 🟡 down but below the alert rate, 🔴 at or past it, ⚪ no price yet, ⏸ paused. Times are shown in Bangkok time.
+- **Alert message layout:** the starting price (reference close and date), the alert rate with its price, then the latest close and the drop from the starting price.
 
 ## 9. Architecture
 
@@ -131,9 +140,9 @@ Phase 1 can start now. Each pure rule (drop math, month attribution, stale check
 - Twelve Data Basic includes NYSE symbols; exact `adjust` semantics; how soon history is restated after a split.
 - A multi-row `/time_series` response costs 1 credit; multi-symbol request shape and maximum; whether a failed request consumes credits; how a 429 is reported.
 - D1 Free allows 50 queries per invocation: confirm whether a `batch()` of N statements counts as 1 or N. The job issues about 6 reads/writes plus 1 batch per asset, so 20 assets is about 26 calls if a batch counts once, and could exceed 50 if each statement counts.
-- LINE: a push returns `sentMessages[].id`; `X-Line-Retry-Key` makes retries idempotent (duplicate key answers 409, treated as delivered); a push after a network timeout cannot be told apart from a lost one; LINE free quota for the Thai account; D1 Time Travel on the free plan; Cloudflare Access is no longer needed in MVP.
+- LINE: a push returns `sentMessages[].id`; `X-Line-Retry-Key` makes retries idempotent (duplicate key answers 409, treated as delivered); a push after a network timeout cannot be told apart from a lost one; LINE free quota for the Thai account; D1 Time Travel on the free plan; Cloudflare Access is not used (the webhook relies on the signature and owner check).
 
 ## 13. Deferred and out of scope
 
 - **Deferred (decide after Phase 1 runs):** deployment steps, production secret handling, operational readiness details.
-- **Out of scope:** Angular dashboard and its HTTP API, price/notification history screens, Thai or other non-US markets, funds, dividend adjustment, currency conversion, trading, multi-user.
+- **Out of scope:** Angular dashboard and its HTTP API (the LINE webhook is the only route), price/notification history screens, Thai or other non-US markets, funds, dividend adjustment, currency conversion, trading, multi-user.

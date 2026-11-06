@@ -9,7 +9,7 @@ Day-to-day operation of the Price Alert system. Design and rules: [SPEC.md](SPEC
 | 19:00 (`0 12 * * *` UTC) | Fetch the latest completed US daily close for every active asset, update references, queue alerts, send them on LINE. |
 | 20:00 (`0 13 * * *` UTC) | Finish assets the first run could not (rate limit, errors, subrequest budget). If no asset got a valid price all day, send one LINE warning. |
 
-There are no public endpoints. Opening the Worker URL returns `404 price-alert: no public endpoints`.
+The only HTTP route is `POST /line/webhook` (LINE chat commands, see README). It rejects any request without a valid LINE signature (401) and ignores messages from anyone but the owner. Opening the Worker URL in a browser returns `404 price-alert: no public endpoints`.
 
 ## Check it works
 
@@ -76,7 +76,10 @@ Twelve Data terms: personal, non-commercial use; do not redistribute or publicly
 | `HELD` on one asset | A single-day move above 40% in the newest 3 daily moves: possible unrestated split. Held for at most 3 trading days, then evaluated. |
 | Alert stuck `Failed` | LINE rejected it (token wrong, quota used up). Fix the cause; the next run retries, or `npm run notify -- --remote`. |
 | No LINE at all though status says `Sent` | Wrong `LINE_USER_ID` or you blocked the account. Run `npm run line-test`. |
-| Need live logs | `npx wrangler tail` before 19:00. |
+| Chat commands get no answer | Check in order: Webhook URL and "Use webhook" in the LINE Console (press Verify); auto-response turned off in Official Account Manager; `LINE_CHANNEL_SECRET` secret set (a missing one makes the webhook answer 503, a wrong one 401); you are messaging from the account whose id is in `LINE_USER_ID`. Watch live with `npx wrangler tail` while sending `help`. |
+| Chat answers "⚠️ ..." | The message after the warning sign is the reason (unknown symbol, threshold out of range, quote rejected). |
+| `fetch` in chat does only some assets | By design it handles 8 per command (per-minute credit limit). Send `fetch` again after a minute for the rest. |
+| Need live logs | `npx wrangler tail` before 19:00 (or while sending a chat command). |
 
 ## Still unconfirmed against the live services
 
