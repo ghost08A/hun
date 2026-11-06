@@ -7,7 +7,9 @@
     "migrate:remote": "wrangler d1 migrations apply price-alert --remote",
     "assets": "node scripts/assets.mjs",
     "fetch": "node scripts/fetch.mjs",
-    "test": "node --test scripts/core.test.mjs src/market.test.mjs src/reference.test.mjs src/alerts.test.mjs"
+    "notify": "node scripts/notify.mjs send",
+    "line-test": "node scripts/notify.mjs test",
+    "test": "node --test scripts/core.test.mjs src/market.test.mjs src/reference.test.mjs src/alerts.test.mjs src/line.test.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

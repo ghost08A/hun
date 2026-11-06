@@ -130,7 +130,7 @@ Phase 1 can start now. Each pure rule (drop math, month attribution, stale check
 
 - Twelve Data Basic includes NYSE symbols; exact `adjust` semantics; how soon history is restated after a split.
 - A multi-row `/time_series` response costs 1 credit; multi-symbol request shape and maximum; whether a failed request consumes credits; how a 429 is reported.
-- LINE free quota for the Thai account; D1 Time Travel on the free plan; Cloudflare Access is no longer needed in MVP.
+- LINE: a push returns `sentMessages[].id`; `X-Line-Retry-Key` makes retries idempotent (duplicate key answers 409, treated as delivered); a push after a network timeout cannot be told apart from a lost one; LINE free quota for the Thai account; D1 Time Travel on the free plan; Cloudflare Access is no longer needed in MVP.
 
 ## 13. Deferred and out of scope
 
