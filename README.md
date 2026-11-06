@@ -74,7 +74,10 @@ LINE เลิกให้สร้าง channel Messaging API โดยตร�
    ```bash
    npx wrangler login
    ```
-4. สร้างฐานข้อมูล แล้วนำ `database_id` ที่ได้ไปใส่ใน `wrangler.toml` **แทนค่าเดิมทั้งหมด** (ค่าที่อยู่ในไฟล์เป็นของเจ้าของโปรเจกต์ ใช้กับบัญชีคุณไม่ได้)
+4. ก๊อปไฟล์ตั้งค่า (`wrangler.toml` ไม่อยู่ใน git เพราะมี id ของคุณ) แล้วสร้างฐานข้อมูล นำ `database_id` ที่ได้ไปใส่แทน `REPLACE_WITH_YOUR_D1_DATABASE_ID`
+   ```bash
+   cp wrangler.toml.example wrangler.toml
+   ```
    ```bash
    npx wrangler d1 create price-alert
    ```
@@ -213,7 +216,7 @@ AAPL   yes    2026-11-06  349.51 338.32  321.40  -3.31  -
   git remote add origin <URL ของ repo>
   git push -u origin main
   ```
-  ที่เครื่องใหม่: `git clone <URL ของ repo>` แล้ว `cd` เข้าโฟลเดอร์ ไฟล์ความลับทั้งหมดอยู่นอก git อยู่แล้ว (`.gitignore` กัน `.dev.vars`, `.wrangler/`, `backups/`) แต่ตรวจให้แน่ใจว่า repo เป็น **private** เพราะมีข้อมูลการวางแผนของคุณและ `database_id`
+  ที่เครื่องใหม่: `git clone <URL ของ repo>` แล้ว `cd` เข้าโฟลเดอร์ ไฟล์ความลับทั้งหมดอยู่นอก git อยู่แล้ว (`.gitignore` กัน `.dev.vars`, `.wrangler/`, `backups/`) แต่ตรวจให้แน่ใจว่า repo เป็น **private** เพราะมีข้อมูลการวางแผนของคุณ (`wrangler.toml` ที่มี `database_id` ไม่อยู่ใน git แต่ต้องก๊อปไปเครื่องใหม่เอง)
 - **ข. คัดลอกโฟลเดอร์:** คัดลอกทั้งโฟลเดอร์ไปเครื่องใหม่ **ยกเว้น** `node_modules/` และ `.wrangler/` (ไม่ต้องเอาไป) ถ้าจะคัดลอก `.dev.vars` ไปด้วย ให้ใช้ช่องทางที่ปลอดภัย (USB หรือ password manager) อย่าส่งทางแชตหรืออีเมล
 
 **3. ติดตั้งไลบรารี**
@@ -263,7 +266,7 @@ npx wrangler deploy
 src/        โค้ดที่รันใน Worker (ดึงราคา คำนวณอ้างอิง แจ้งเตือน LINE งานรายวัน คำสั่งผ่านแชต)
 scripts/    คำสั่งบนเครื่อง (assets, fetch, notify, backup)
 migrations/ โครงสร้างตารางฐานข้อมูล
-wrangler.toml  ตั้งค่า Worker, ฐานข้อมูล และเวลา cron (UTC 12:00 และ 13:00)
+wrangler.toml.example  แม่แบบตั้งค่า Worker (ก๊อปเป็น wrangler.toml ซึ่งไม่อยู่ใน git) ตั้งค่า Worker, ฐานข้อมูล และเวลา cron (UTC 12:00 และ 13:00)
 .dev.vars   ความลับของเครื่องนี้ (ไม่อยู่ใน git)
 ```
 
