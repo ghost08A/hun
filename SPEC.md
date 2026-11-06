@@ -56,10 +56,10 @@ Dropped from v1.0: FR-04, FR-09 (implicit in the daily rule), FR-14, FR-19, FR-2
 - **BR-04 Duplicates:** unique `(AssetId, ReferenceMonth)` in AlertHistory; a continuing decline in the same month never creates a second alert.
 - **BR-05 New month:** the new reference is used only once the first close of the new month is in the data. Missed months (asset disabled) are never alerted retroactively.
 - **BR-06 Validity:** only daily closes; skip evaluation on missing, invalid or stale data.
-- **BR-07 Splits:** restatement means the stored reference differs from the re-derived one by more than 0.1% relative. Replace it immediately, before evaluating, and log old/new. A `Sent` alert for the month stays; a `Failed`/`Pending` alert is re-evaluated with the new reference. **Hold guard:** if two consecutive closes in the fetched series differ by more than 40%, skip that asset, record the reason, retry next run; after 3 held runs evaluate normally.
+- **BR-07 Splits:** restatement means the stored reference differs from the re-derived one by more than 0.1% relative. Replace it immediately, before evaluating, and log old/new. A `Sent` alert for the month stays; a `Failed`/`Pending` alert is re-evaluated with the new reference. **Hold guard:** if any of the newest 3 daily moves in the fetched series exceeds 40% (up or down), skip that asset, record the reason, and retry next run. The window is over the data, not a run counter, so it is stateless and a hold lasts at most 3 trading days; after that the asset is evaluated normally (a real crash or restated data). (Implemented this way in Phase 3; same effect as the original "3 held runs" for consecutive daily runs.)
 - **BR-08 LINE failure:** bounded retry as in section 2; retries reuse the same AlertHistory row, so no duplicate record or duplicate success.
 - **BR-09 Currency:** store currency with every price; compare only same-currency values. No conversion.
-- **Mid-month add:** reference is back-filled from the month's first trading day (flagged `IsBackfilled`). If already at or past the threshold, the first check sends the alert, and the message says the reference was back-filled.
+- **Mid-month add:** reference is back-filled from the month's first trading day (flagged `IsBackfilled`, set whenever the reference day is earlier than the latest close, e.g. after a missed run too). If already at or past the threshold, the first check sends the alert, and the message says the reference was back-filled.
 
 ## 5. Daily run (idempotent, both cron triggers)
 

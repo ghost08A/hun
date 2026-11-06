@@ -1,9 +1,10 @@
-// Manual price-fetch run (SPEC section 5, steps 1-3 and 5-6). Phase 3 adds references and the hold guard;
-// Phase 6 moves this into the Worker, where D1 is reached through its binding instead of the wrangler CLI.
+// Manual price-fetch run (SPEC section 5, steps 1-5). Phase 4 adds the alert step; Phase 6 moves this into
+// the Worker, where D1 is reached through its binding instead of the wrangler CLI.
 // ponytail: SQL strings through wrangler, fine for a manual run; Worker uses prepared statements.
 import { d1 as realD1 } from './lib.mjs';
 import { sqlText } from './core.mjs';
-import { fetchSeries, latestOf, localDate, previousMonthStart, SPACING_MS, RateLimitError } from '../src/market.mjs';
+import { fetchSeries, localDate, previousMonthStart, SPACING_MS, RateLimitError } from '../src/market.mjs';
+import { analyze } from '../src/reference.mjs';
 
 const nowIso = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 
@@ -18,11 +19,17 @@ export async function runFetch({
 
   // Idempotent: skip assets that already have a successful check today.
   const todo = d1(
-    `SELECT Id, Symbol, Currency FROM Assets WHERE IsActive = 1 AND Id NOT IN
+    `SELECT Id, Symbol, Currency, AlertThresholdPercent AS Threshold FROM Assets WHERE IsActive = 1 AND Id NOT IN
        (SELECT AssetId FROM CheckResults WHERE RunDate = ${sqlText(runDate)} AND Outcome = 'ok') ORDER BY Symbol`, remote);
   if (!todo.length) {
     log(`Nothing to do for ${runDate}: no active assets, or all already checked.`);
     return { runDate, checked: 0, failed: 0, stoppedByRateLimit: false };
+  }
+
+  // Stored references for the months a fetched series can cover (previous and current).
+  const stored = {};
+  for (const r of d1(`SELECT AssetId, ReferenceMonth, ReferenceDate, ReferencePrice FROM MonthlyReferencePrices WHERE ReferenceMonth >= ${sqlText(startDate.slice(0, 7))}`, remote)) {
+    (stored[r.AssetId] ??= {})[r.ReferenceMonth] = { date: r.ReferenceDate, price: r.ReferencePrice };
   }
 
   const runId = d1(`INSERT INTO RunLog (TriggerLabel, StartedAt) VALUES (${sqlText(label)}, ${sqlText(nowIso())}) RETURNING Id`, remote)[0].Id;
@@ -39,17 +46,32 @@ export async function runFetch({
       `INSERT INTO CheckResults (AssetId, RunDate, Outcome, Detail, RunId, CheckedAt) VALUES (${a.Id}, ${sqlText(runDate)}, ${sqlText(outcome)}, ${sqlText(detail)}, ${runId}, ${sqlText(nowIso())})`;
     try {
       const series = await fetchSeries(a.Symbol, startDate, { apiKey, fetchFn });
-      const l = latestOf(series, runDate, staleDays, marketToday);
-      const price = `INSERT INTO PriceHistory (AssetId, PriceDate, Price, Currency, RetrievedAt, Source) VALUES (${a.Id}, ${sqlText(l.date)}, ${l.close}, ${sqlText(l.currency ?? a.Currency)}, ${sqlText(nowIso())}, 'twelvedata')
-        ON CONFLICT (AssetId, PriceDate) DO UPDATE SET Price = excluded.Price, Currency = excluded.Currency, RetrievedAt = excluded.RetrievedAt`;
-      if (l.stale) {
-        d1(`${price}; ${result('stale', `latest close ${l.date} is older than ${staleDays} days`)}`, remote);
-        failed++;
-        log(`${a.Symbol}: STALE (${l.date}, ${l.close})`);
-      } else {
-        d1(`${price}; ${result('ok', `close ${l.close} on ${l.date}`)}`, remote);
+      const res = analyze({ rows: series.rows, runDate, marketToday, threshold: a.Threshold, storedRefs: stored[a.Id], options: { staleDays } });
+      const sql = [];
+      if (res.latest) {
+        sql.push(`INSERT INTO PriceHistory (AssetId, PriceDate, Price, Currency, RetrievedAt, Source) VALUES (${a.Id}, ${sqlText(res.latest.date)}, ${res.latest.close}, ${sqlText(series.currency ?? a.Currency)}, ${sqlText(nowIso())}, 'twelvedata')
+          ON CONFLICT (AssetId, PriceDate) DO UPDATE SET Price = excluded.Price, Currency = excluded.Currency, RetrievedAt = excluded.RetrievedAt`);
+      }
+      if (res.outcome === 'ok') {
+        const ref = res.reference;
+        if (res.isNew) {
+          sql.push(`INSERT INTO MonthlyReferencePrices (AssetId, ReferenceMonth, ReferenceDate, ReferencePrice, Currency, IsBackfilled) VALUES (${a.Id}, ${sqlText(res.month)}, ${sqlText(ref.date)}, ${ref.price}, ${sqlText(series.currency ?? a.Currency)}, ${ref.isBackfilled ? 1 : 0}) ON CONFLICT (AssetId, ReferenceMonth) DO NOTHING`);
+        }
+        if (res.adjustment) {
+          sql.push(`INSERT INTO ReferenceAdjustments (AssetId, ReferenceMonth, OldPrice, NewPrice, DetectedAt) VALUES (${a.Id}, ${sqlText(res.month)}, ${res.adjustment.oldPrice}, ${res.adjustment.newPrice}, ${sqlText(nowIso())})`);
+          sql.push(`UPDATE MonthlyReferencePrices SET ReferencePrice = ${res.adjustment.newPrice} WHERE AssetId = ${a.Id} AND ReferenceMonth = ${sqlText(res.month)}`);
+        }
+      }
+      sql.push(result(res.outcome, res.detail));
+      d1(sql.join('; '), remote);
+
+      if (res.outcome === 'ok') {
         checked++;
-        log(`${a.Symbol}: ok ${l.close} ${l.currency ?? ''} on ${l.date}`);
+        const notes = [res.isNew && (res.reference.isBackfilled ? 'reference back-filled' : 'new month'), res.adjustment && `REFERENCE RESTATED ${res.adjustment.oldPrice} -> ${res.adjustment.newPrice}`, res.triggered && 'AT/PAST THRESHOLD'].filter(Boolean);
+        log(`${a.Symbol}: ${res.detail}${notes.length ? ` [${notes.join(', ')}]` : ''}`);
+      } else {
+        failed++;
+        log(`${a.Symbol}: ${res.outcome.toUpperCase()} ${res.detail}`);
       }
     } catch (e) {
       if (e instanceof RateLimitError) {
