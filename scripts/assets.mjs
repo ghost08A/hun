@@ -96,6 +96,10 @@ async function main() {
       const runs = d1('SELECT TriggerLabel, StartedAt, FinishedAt, AssetsChecked, AssetsFailed, Errors FROM RunLog ORDER BY Id DESC LIMIT 5', remote);
       console.log(runs.length ? '\nLast runs:' : '\nNo runs recorded yet (cron arrives in a later phase).');
       for (const r of runs) console.log(`  ${r.StartedAt} ${r.TriggerLabel} checked=${r.AssetsChecked} failed=${r.AssetsFailed} ${r.Errors ?? ''}`);
+      const alerts = d1(`SELECT a.Symbol, h.ReferenceMonth, h.Status, h.TriggerPrice, h.DropPercent, h.TriggeredAt, h.SentAt, h.ReferenceBackfilled
+        FROM AlertHistory h JOIN Assets a ON a.Id = h.AssetId ORDER BY h.Id DESC LIMIT 10`, remote);
+      console.log(alerts.length ? '\nAlerts:' : '\nNo alerts yet.');
+      for (const h of alerts) console.log(`  ${h.ReferenceMonth} ${h.Symbol.padEnd(8)} ${h.Status.padEnd(8)} price ${fmt(h.TriggerPrice)} drop ${fmt(h.DropPercent)}%${h.ReferenceBackfilled ? ' (reference back-filled)' : ''}${h.SentAt ? ` sent ${h.SentAt}` : ''}`);
       break;
     }
     default:

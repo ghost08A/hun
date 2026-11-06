@@ -5,6 +5,7 @@ import { d1 as realD1 } from './lib.mjs';
 import { sqlText } from './core.mjs';
 import { fetchSeries, localDate, previousMonthStart, SPACING_MS, RateLimitError } from '../src/market.mjs';
 import { analyze } from '../src/reference.mjs';
+import { decideAlert } from '../src/alerts.mjs';
 
 const nowIso = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 
@@ -28,8 +29,13 @@ export async function runFetch({
 
   // Stored references for the months a fetched series can cover (previous and current).
   const stored = {};
-  for (const r of d1(`SELECT AssetId, ReferenceMonth, ReferenceDate, ReferencePrice FROM MonthlyReferencePrices WHERE ReferenceMonth >= ${sqlText(startDate.slice(0, 7))}`, remote)) {
-    (stored[r.AssetId] ??= {})[r.ReferenceMonth] = { date: r.ReferenceDate, price: r.ReferencePrice };
+  const fromMonth = sqlText(startDate.slice(0, 7));
+  for (const r of d1(`SELECT AssetId, ReferenceMonth, ReferenceDate, ReferencePrice, IsBackfilled FROM MonthlyReferencePrices WHERE ReferenceMonth >= ${fromMonth}`, remote)) {
+    (stored[r.AssetId] ??= {})[r.ReferenceMonth] = { date: r.ReferenceDate, price: r.ReferencePrice, isBackfilled: r.IsBackfilled };
+  }
+  const alerts = {};
+  for (const r of d1(`SELECT AssetId, ReferenceMonth, Status FROM AlertHistory WHERE ReferenceMonth >= ${fromMonth}`, remote)) {
+    (alerts[r.AssetId] ??= {})[r.ReferenceMonth] = { status: r.Status };
   }
 
   const runId = d1(`INSERT INTO RunLog (TriggerLabel, StartedAt) VALUES (${sqlText(label)}, ${sqlText(nowIso())}) RETURNING Id`, remote)[0].Id;
@@ -62,12 +68,21 @@ export async function runFetch({
           sql.push(`UPDATE MonthlyReferencePrices SET ReferencePrice = ${res.adjustment.newPrice} WHERE AssetId = ${a.Id} AND ReferenceMonth = ${sqlText(res.month)}`);
         }
       }
+      const alert = decideAlert({ res, existing: alerts[a.Id]?.[res.month] });
+      if (alert.type === 'create') {
+        // Unique (AssetId, ReferenceMonth) makes a repeated run harmless (BR-04).
+        sql.push(`INSERT INTO AlertHistory (AssetId, ReferenceMonth, TriggerPrice, DropPercent, TriggeredAt, Status, ReferenceBackfilled) VALUES (${a.Id}, ${sqlText(res.month)}, ${alert.triggerPrice}, ${alert.dropPercent}, ${sqlText(nowIso())}, 'Pending', ${alert.referenceBackfilled ? 1 : 0}) ON CONFLICT (AssetId, ReferenceMonth) DO NOTHING`);
+      } else if (alert.type === 'update') {
+        sql.push(`UPDATE AlertHistory SET TriggerPrice = ${alert.triggerPrice}, DropPercent = ${alert.dropPercent}, TriggeredAt = ${sqlText(nowIso())} WHERE AssetId = ${a.Id} AND ReferenceMonth = ${sqlText(res.month)} AND Status <> 'Sent'`);
+      } else if (alert.type === 'delete') {
+        sql.push(`DELETE FROM AlertHistory WHERE AssetId = ${a.Id} AND ReferenceMonth = ${sqlText(res.month)} AND Status <> 'Sent'`);
+      }
       sql.push(result(res.outcome, res.detail));
       d1(sql.join('; '), remote);
 
       if (res.outcome === 'ok') {
         checked++;
-        const notes = [res.isNew && (res.reference.isBackfilled ? 'reference back-filled' : 'new month'), res.adjustment && `REFERENCE RESTATED ${res.adjustment.oldPrice} -> ${res.adjustment.newPrice}`, res.triggered && 'AT/PAST THRESHOLD'].filter(Boolean);
+        const notes = [res.isNew && (res.reference.isBackfilled ? 'reference back-filled' : 'new month'), res.adjustment && `REFERENCE RESTATED ${res.adjustment.oldPrice} -> ${res.adjustment.newPrice}`, res.triggered && 'AT/PAST THRESHOLD', alert.type === 'create' && 'ALERT QUEUED (Pending)', alert.type === 'update' && 'pending alert updated', alert.type === 'delete' && 'pending alert withdrawn'].filter(Boolean);
         log(`${a.Symbol}: ${res.detail}${notes.length ? ` [${notes.join(', ')}]` : ''}`);
       } else {
         failed++;

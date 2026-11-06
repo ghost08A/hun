@@ -57,7 +57,7 @@ export function analyze({ rows: all, runDate, marketToday, threshold, storedRefs
     reference = { date: first.date, price: first.close, isBackfilled: first.date !== latest.date };
     isNew = true;
   } else {
-    reference = { date: stored.date, price: stored.price };
+    reference = { date: stored.date, price: stored.price, isBackfilled: Boolean(stored.isBackfilled) };
     const same = rows.find((r) => r.date === stored.date);
     if (same && Math.abs(same.close - stored.price) / stored.price > o.tolerance) {
       adjustment = { oldPrice: stored.price, newPrice: same.close };
