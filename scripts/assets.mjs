@@ -94,7 +94,7 @@ async function main() {
         console.log(`${r.Symbol.padEnd(8)} ${(r.IsActive ? 'yes' : 'no').padEnd(7)} ${(r.PriceDate ?? '-').padEnd(12)} ${fmt(r.Price).padEnd(8)} ${fmt(r.Reference).padEnd(8)} ${fmt(target).padEnd(8)} ${fmt(drop).padEnd(7)} ${r.LastAlert ?? '-'}`);
       }
       const runs = d1('SELECT TriggerLabel, StartedAt, FinishedAt, AssetsChecked, AssetsFailed, Errors FROM RunLog ORDER BY Id DESC LIMIT 5', remote);
-      console.log(runs.length ? '\nLast runs:' : '\nNo runs recorded yet (cron arrives in a later phase).');
+      console.log(runs.length ? '\nLast runs:' : '\nNo runs recorded yet (the first scheduled run is at 19:00 Asia/Bangkok).');
       for (const r of runs) console.log(`  ${r.StartedAt} ${r.TriggerLabel} checked=${r.AssetsChecked} failed=${r.AssetsFailed} ${r.Errors ?? ''}`);
       const alerts = d1(`SELECT a.Symbol, h.ReferenceMonth, h.Status, h.TriggerPrice, h.DropPercent, h.TriggeredAt, h.SentAt, h.ReferenceBackfilled
         FROM AlertHistory h JOIN Assets a ON a.Id = h.AssetId ORDER BY h.Id DESC LIMIT 10`, remote);
