@@ -28,3 +28,9 @@ export function d1(sql, remote) {
   const parsed = JSON.parse(r.stdout);
   return parsed[parsed.length - 1]?.results ?? [];
 }
+
+// Same shape as src/d1db.mjs, on top of the wrangler CLI, so manual runs use the Worker's code paths.
+export const cliDb = (remote) => ({
+  query: async (sql) => d1(sql, remote),
+  run: async (statements) => { d1(statements.join('; '), remote); },
+});

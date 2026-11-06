@@ -1,7 +1,11 @@
 name = "price-alert"
 compatibility_date = "2026-11-01"
 
-# Worker entry and cron triggers are added in later phases.
+main = "src/worker.mjs"
+
+# 19:00 and 20:00 Asia/Bangkok (UTC+7, no DST). Cron runs in UTC. Nothing runs until `wrangler deploy` (Phase 7).
+[triggers]
+crons = ["0 12 * * *", "0 13 * * *"]
 
 [[d1_databases]]
 binding = "DB"

@@ -1,49 +1,55 @@
-// Manual price-fetch run (SPEC section 5, steps 1-5). Phase 4 adds the alert step; Phase 6 moves this into
-// the Worker, where D1 is reached through its binding instead of the wrangler CLI.
-// ponytail: SQL strings through wrangler, fine for a manual run; Worker uses prepared statements.
-import { d1 as realD1 } from './lib.mjs';
-import { sqlText } from './core.mjs';
-import { fetchSeries, localDate, previousMonthStart, SPACING_MS, RateLimitError } from '../src/market.mjs';
-import { analyze } from '../src/reference.mjs';
-import { decideAlert } from '../src/alerts.mjs';
+// One price-check run (SPEC section 5, steps 1-5). Runs in the Worker and from the manual scripts: it only
+// needs `db` (see d1db.mjs), fetch, and a sleep function, so it has no Node-only dependencies.
+import { sqlText } from './sql.mjs';
+import { fetchSeries, localDate, previousMonthStart, SPACING_MS, RateLimitError } from './market.mjs';
+import { analyze } from './reference.mjs';
+import { decideAlert } from './alerts.mjs';
 
 const nowIso = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 
+// maxFetches: Workers Free allows 50 subrequests per invocation; stop at 45 and leave the rest for the next trigger.
 export async function runFetch({
-  remote = false, label = 'manual', apiKey, fetchFn = fetch, d1 = realD1,
+  db, label = 'manual', apiKey, fetchFn = fetch, maxFetches = 45,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now(),
   staleDays = 4, log = console.log,
 }) {
+  if (!apiKey) throw new Error('TWELVE_DATA_API_KEY is not set');
   const runDate = localDate(new Date(now()));
   const startDate = previousMonthStart(runDate);
   const marketToday = localDate(new Date(now()), 'America/New_York'); // exclude the unfinished day
 
   // Idempotent: skip assets that already have a successful check today.
-  const todo = d1(
+  const todo = await db.query(
     `SELECT Id, Symbol, Currency, AlertThresholdPercent AS Threshold FROM Assets WHERE IsActive = 1 AND Id NOT IN
-       (SELECT AssetId FROM CheckResults WHERE RunDate = ${sqlText(runDate)} AND Outcome = 'ok') ORDER BY Symbol`, remote);
+       (SELECT AssetId FROM CheckResults WHERE RunDate = ${sqlText(runDate)} AND Outcome = 'ok') ORDER BY Symbol`);
   if (!todo.length) {
     log(`Nothing to do for ${runDate}: no active assets, or all already checked.`);
-    return { runDate, checked: 0, failed: 0, stoppedByRateLimit: false };
+    return { runDate, checked: 0, failed: 0, stoppedByRateLimit: false, stoppedByBudget: false };
   }
 
-  // Stored references for the months a fetched series can cover (previous and current).
-  const stored = {};
+  // Stored references and alerts for the months a fetched series can cover (previous and current).
   const fromMonth = sqlText(startDate.slice(0, 7));
-  for (const r of d1(`SELECT AssetId, ReferenceMonth, ReferenceDate, ReferencePrice, IsBackfilled FROM MonthlyReferencePrices WHERE ReferenceMonth >= ${fromMonth}`, remote)) {
+  const stored = {};
+  for (const r of await db.query(`SELECT AssetId, ReferenceMonth, ReferenceDate, ReferencePrice, IsBackfilled FROM MonthlyReferencePrices WHERE ReferenceMonth >= ${fromMonth}`)) {
     (stored[r.AssetId] ??= {})[r.ReferenceMonth] = { date: r.ReferenceDate, price: r.ReferencePrice, isBackfilled: r.IsBackfilled };
   }
   const alerts = {};
-  for (const r of d1(`SELECT AssetId, ReferenceMonth, Status FROM AlertHistory WHERE ReferenceMonth >= ${fromMonth}`, remote)) {
+  for (const r of await db.query(`SELECT AssetId, ReferenceMonth, Status FROM AlertHistory WHERE ReferenceMonth >= ${fromMonth}`)) {
     (alerts[r.AssetId] ??= {})[r.ReferenceMonth] = { status: r.Status };
   }
 
-  const runId = d1(`INSERT INTO RunLog (TriggerLabel, StartedAt) VALUES (${sqlText(label)}, ${sqlText(nowIso())}) RETURNING Id`, remote)[0].Id;
-  let checked = 0, failed = 0, stopped = false;
+  const runId = (await db.query(`INSERT INTO RunLog (TriggerLabel, StartedAt) VALUES (${sqlText(label)}, ${sqlText(nowIso())}) RETURNING Id`))[0].Id;
+  let checked = 0, failed = 0, stopped = false, outOfBudget = false, fetches = 0;
   const errors = [];
   let lastCall = 0;
 
   for (const a of todo) {
+    if (fetches >= maxFetches) {
+      outOfBudget = true;
+      errors.push(`subrequest budget (${maxFetches}) reached at ${a.Symbol}; rest left for the next trigger`);
+      log(`${a.Symbol}: budget reached, stopping`);
+      break;
+    }
     const wait = lastCall + SPACING_MS - now();
     if (lastCall && wait > 0) await sleep(wait);
     lastCall = now();
@@ -51,6 +57,7 @@ export async function runFetch({
     const result = (outcome, detail) =>
       `INSERT INTO CheckResults (AssetId, RunDate, Outcome, Detail, RunId, CheckedAt) VALUES (${a.Id}, ${sqlText(runDate)}, ${sqlText(outcome)}, ${sqlText(detail)}, ${runId}, ${sqlText(nowIso())})`;
     try {
+      fetches++;
       const series = await fetchSeries(a.Symbol, startDate, { apiKey, fetchFn });
       const res = analyze({ rows: series.rows, runDate, marketToday, threshold: a.Threshold, storedRefs: stored[a.Id], options: { staleDays } });
       const sql = [];
@@ -78,7 +85,7 @@ export async function runFetch({
         sql.push(`DELETE FROM AlertHistory WHERE AssetId = ${a.Id} AND ReferenceMonth = ${sqlText(res.month)} AND Status <> 'Sent'`);
       }
       sql.push(result(res.outcome, res.detail));
-      d1(sql.join('; '), remote);
+      await db.run(sql);
 
       if (res.outcome === 'ok') {
         checked++;
@@ -95,13 +102,13 @@ export async function runFetch({
         log(`${a.Symbol}: RATE LIMITED, stopping (resume at the next run)`);
         break;
       }
-      d1(result('error', String(e.message).slice(0, 300)), remote);
+      await db.run([result('error', String(e.message).slice(0, 300))]);
       failed++;
       errors.push(`${a.Symbol}: ${e.message}`);
       log(`${a.Symbol}: ERROR ${e.message}`);
     }
   }
 
-  d1(`UPDATE RunLog SET FinishedAt = ${sqlText(nowIso())}, AssetsChecked = ${checked}, AssetsFailed = ${failed}, Errors = ${errors.length ? sqlText(errors.join('; ').slice(0, 500)) : 'NULL'} WHERE Id = ${runId}`, remote);
-  return { runDate, checked, failed, stoppedByRateLimit: stopped };
+  await db.run([`UPDATE RunLog SET FinishedAt = ${sqlText(nowIso())}, AssetsChecked = ${checked}, AssetsFailed = ${failed}, Errors = ${errors.length ? sqlText(errors.join('; ').slice(0, 500)) : 'NULL'} WHERE Id = ${runId}`]);
+  return { runDate, checked, failed, stoppedByRateLimit: stopped, stoppedByBudget: outOfBudget };
 }
