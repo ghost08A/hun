@@ -28,6 +28,7 @@ export const HELP = [
   '',
   'อื่นๆ',
   `fetch — ดึงราคาตอนนี้ (สูงสุด ${FETCH_LIMIT} ตัวต่อครั้ง)`,
+  'credits — ดู credit ที่เหลือของ Twelve Data (ไม่เสีย credit)',
 ].join('\n');
 
 const USAGE = {
@@ -47,7 +48,7 @@ export function parseCommand(text) {
   const args = parts.slice(1);
   const bad = () => ({ error: `รูปแบบคำสั่ง\n${USAGE[cmd]}` });
   switch (cmd) {
-    case 'help': case 'list': case 'status': case 'fetch':
+    case 'help': case 'list': case 'status': case 'fetch': case 'credits':
       return args.length ? { error: `${cmd} ไม่มีค่าต่อท้าย` } : { cmd, args };
     case 'add': {
       const type = args[2]?.toLowerCase();
@@ -66,7 +67,16 @@ export function parseCommand(text) {
 const n2 = (x) => (x == null ? '-' : Number(x).toFixed(2));
 const bkk = (iso) => new Date(iso).toLocaleString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 16);
 const alertWord = { Sent: 'ส่งแล้ว', Pending: 'รอส่ง', Failed: 'ส่งไม่สำเร็จ (จะลองใหม่)' };
-const creditsLine = (u) => (u ? `💳 Credit วันนี้: ใช้ ${u.used}/${u.limit} (เหลือ ${u.left})` : '');
+const creditsLine = (u) => (u ? `💳 Credit Twelve Data วันนี้: ใช้ ${u.used}/${u.limit} (เหลือ ${u.left})` : '');
+
+// The `credits` command: the day's credits plus the per-minute window, always labelled as Twelve Data's.
+export function formatCredits(u) {
+  if (!u) return '⚠️ ดึงยอด credit ของ Twelve Data ไม่สำเร็จ ลองใหม่อีกครั้ง';
+  const lines = ['💳 Credit ของ Twelve Data', '', `วันนี้: ใช้ ${u.used} จาก ${u.limit} (เหลือ ${u.left})`];
+  if (u.minuteUsed != null && u.minuteLimit != null) lines.push(`นาทีล่าสุด: ใช้ ${u.minuteUsed} จาก ${u.minuteLimit}`);
+  lines.push('', 'ยอดรายวันรีเซ็ต 07:00 น. เวลาไทย (เที่ยงคืน UTC)');
+  return lines.join('\n');
+}
 const dropText = (d) => (d >= 0 ? `ลดแล้ว ${n2(d)}%` : `สูงกว่าตั้งต้น ${n2(-d)}%`);
 const dot = (drop, threshold) => (drop == null ? '⚪' : drop >= threshold - 1e-9 ? '🔴' : drop >= 0 ? '🟡' : '🟢');
 
@@ -179,6 +189,8 @@ export async function runChatCommand({ text, db, env, fetchFn = fetch, now = () 
         const r = await removeAsset({ db, symbol });
         return `🗑 ลบ ${r.symbol} แล้ว\n\nลบหุ้นและประวัติทั้งหมดเรียบร้อย`;
       }
+      case 'credits':
+        return formatCredits(await fetchUsage({ apiKey, fetchFn }));
       case 'fetch': {
         const logs = [];
         const out = await dailyJob({

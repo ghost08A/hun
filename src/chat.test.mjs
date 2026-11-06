@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCommand, formatStatus, formatList, formatFetch, runChatCommand, CONFIRM_WINDOW_MS } from './chat.mjs';
+import { parseCommand, formatStatus, formatList, formatFetch, runChatCommand, CONFIRM_WINDOW_MS, HELP } from './chat.mjs';
 
 test('parseCommand accepts the documented commands (English, any case, optional slash)', () => {
   assert.deepEqual(parseCommand('status'), { cmd: 'status', args: [] });
@@ -57,7 +57,7 @@ test('fetch reply: a block per asset, alert note, and the credits line last', ()
   assert.match(t, /\n\n⚠️ XYZ\nราคาเก่าเกินไป ยังไม่ประเมิน\nlatest close/);
   assert.match(t, /🔔 ส่งแจ้งเตือนเข้า LINE แล้ว 1 รายการ/);
   assert.match(t, /ทำได้สูงสุด 8 ตัวต่อครั้ง/);
-  assert.match(t, /💳 Credit วันนี้: ใช้ 14\/800 \(เหลือ 786\)/);
+  assert.match(t, /💳 Credit Twelve Data วันนี้: ใช้ 14\/800 \(เหลือ 786\)/);
   assert.match(formatFetch({ results: [], credits: null }), /ไม่มีอะไรต้องดึง/);
 });
 
@@ -113,6 +113,16 @@ test('remove of an unknown symbol and errors are answered, not thrown', async ()
   assert.match(await runChatCommand({ text: 'nonsense', db, env, fetchFn }), /ไม่รู้จักคำสั่ง/);
 });
 
+test('credits command shows Twelve Data daily and per-minute usage, and needs no arguments', async () => {
+  const fetchF = async () => ({ status: 200, json: async () => ({ current_usage: 1, plan_limit: 8, daily_usage: 4, plan_daily_limit: 800 }) });
+  const reply = await runChatCommand({ text: 'credits', db: stubDb(), env, fetchFn: fetchF });
+  assert.equal(reply, '💳 Credit ของ Twelve Data\n\nวันนี้: ใช้ 4 จาก 800 (เหลือ 796)\nนาทีล่าสุด: ใช้ 1 จาก 8\n\nยอดรายวันรีเซ็ต 07:00 น. เวลาไทย (เที่ยงคืน UTC)');
+  assert.ok(parseCommand('credits now').error);
+  const bad = await runChatCommand({ text: 'credits', db: stubDb(), env, fetchFn: async () => { throw new Error('down'); } });
+  assert.match(bad, /ดึงยอด credit ของ Twelve Data ไม่สำเร็จ/);
+  assert.match(HELP, /credits — /);
+});
+
 test('add reports the remaining credits after using one', async () => {
   const db = stubDb([]);
   const fetchF = async (url) => {
@@ -123,6 +133,6 @@ test('add reports the remaining credits after using one', async () => {
   };
   const reply = await runChatCommand({ text: 'add nvda 8', db, env, fetchFn: fetchF });
   assert.match(reply, /✅ เพิ่ม NVDA แล้ว\n\nNVIDIA Corp\nStock · XNGS\n\nเกณฑ์แจ้งเตือน: ลด 8%/);
-  assert.match(reply, /Credit วันนี้: ใช้ 5\/800 \(เหลือ 795\)/);
+  assert.match(reply, /Credit Twelve Data วันนี้: ใช้ 5\/800 \(เหลือ 795\)/);
   assert.ok(db.ran.some((s) => s.startsWith('INSERT INTO Assets')));
 });

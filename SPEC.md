@@ -89,7 +89,7 @@ Twelve Data key, LINE channel access token, LINE channel secret and LINE user ID
 
 **Local scripts** (`wrangler d1 execute --remote`): `add`, `edit`, `disable`/`enable`, `remove --yes`, `status`, `line-test`, plus `wrangler d1 export` for backup.
 
-**LINE chat commands** (English only; answered in Thai as a free reply, not a push): `status`, `list`, `add SYMBOL N [etf]`, `edit SYMBOL N`, `disable SYMBOL`, `enable SYMBOL`, `remove SYMBOL` then `confirm SYMBOL` within 2 minutes, `fetch`, `help`. Backup, deploy and migrations stay on the computer.
+**LINE chat commands** (English only; answered in Thai as a free reply, not a push): `status`, `list`, `add SYMBOL N [etf]`, `edit SYMBOL N`, `disable SYMBOL`, `enable SYMBOL`, `remove SYMBOL` then `confirm SYMBOL` within 2 minutes, `fetch`, `credits` (Twelve Data credits used, limit and left for the day, and the per-minute window; free to call), `help`. Backup, deploy and migrations stay on the computer.
 
 - **Security:** the webhook accepts a request only with a valid `X-Line-Signature` (HMAC-SHA256 of the raw body with the channel secret; otherwise 401, or 503 if the secret is not set) and acts only on text messages sent by the owner's LINE user id. Anyone else is ignored silently.
 - `fetch` checks at most 8 assets per command (the per-minute credit limit, and the work must finish inside the Worker's window after it has answered LINE). It is idempotent, so repeating it continues with the rest. It also sends any queued alerts.

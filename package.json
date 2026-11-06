@@ -8,6 +8,7 @@
     "assets": "node scripts/assets.mjs",
     "fetch": "node scripts/fetch.mjs",
     "backup": "node scripts/backup.mjs",
+    "credits": "node scripts/credits.mjs",
     "notify": "node scripts/notify.mjs send",
     "dev:worker": "wrangler dev --test-scheduled",
     "line-test": "node scripts/notify.mjs test",

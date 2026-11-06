@@ -68,7 +68,8 @@ export function latestOf(series, runDate, staleDays = 4, beforeDate) {
   return { ...rows[0], currency: series.currency, stale: isStale(rows[0].date, runDate, staleDays) };
 }
 
-// Daily credit usage (free to call). Returns { used, limit, left } or null if the answer is unusable.
+// Credit usage (free to call). Returns { used, limit, left } for the day plus minuteUsed/minuteLimit for the
+// current minute window (null when absent), or null if the answer is unusable.
 export async function fetchUsage({ apiKey, fetchFn = fetch }) {
   try {
     const res = await fetchFn(`https://api.twelvedata.com/api_usage?apikey=${encodeURIComponent(apiKey)}`);
@@ -76,7 +77,13 @@ export async function fetchUsage({ apiKey, fetchFn = fetch }) {
     const used = Number(j.daily_usage);
     const limit = Number(j.plan_daily_limit);
     if (!Number.isFinite(used) || !Number.isFinite(limit)) return null;
-    return { used, limit, left: limit - used };
+    const minuteUsed = Number(j.current_usage);
+    const minuteLimit = Number(j.plan_limit);
+    return {
+      used, limit, left: limit - used,
+      minuteUsed: Number.isFinite(minuteUsed) ? minuteUsed : null,
+      minuteLimit: Number.isFinite(minuteLimit) ? minuteLimit : null,
+    };
   } catch {
     return null;
   }
